@@ -7,12 +7,13 @@ def getVersionNameFromFile() {
         String str = versionFile.text.trim();
         return str.substring(0, str.length() - 1);
     }
-    return "1.0.0" // Fallback version if file is missing
+    return "1.0.0"
 }
 
 android {
+    compileSdk 34
+
     defaultConfig {
-        compileSdk 34
         applicationId "com.committeeofzero.impacto"
         minSdkVersion 28
         targetSdkVersion 34
@@ -58,7 +59,6 @@ android {
             outputs.upToDateWhen { false }
         }
     }
-
 }
 
 dependencies {
