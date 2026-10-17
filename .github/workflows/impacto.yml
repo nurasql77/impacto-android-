@@ -1,298 +1,91 @@
-name: impacto
+name: impacto-android
 on:
   push:
-    branches:
-    - "master"
-    tags:
-    - "*"
+    branches: ["master"]
   pull_request:
-    branches:
-    - "master"
+    branches: ["master"]
   workflow_dispatch:
 
-env:
-  BRANCH_NAME: ${{ github.head_ref || github.ref_name }} 
+permissions:
+  contents: read
+  packages: write
 
 jobs:
-  get-version:
-    name: Get version
+  android:
+    name: Android APK (arm64-v8a)
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    outputs:
-      VERSION: ${{ steps.set-version.outputs.VERSION }}
-    steps:
-    - uses: actions/checkout@v6
-    - name: Set version
-      id: set-version
-      run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
-    - name: Upload VERSION Artifact
-      uses: actions/upload-artifact@v7
-      with:
-        path: VERSION
-        name: VERSION
-        archive: false
-  lint:
-    name: Run linters
-    permissions:
-      checks: write
-      contents: write
-    runs-on: ubuntu-24.04
-    outputs:
-      commitid: ${{ steps.commit.outputs.commitid }}
-
-    steps:
-      - name: Check out Git repository
-        uses: actions/checkout@v6
-      - name: Update clang-format
-        run: |
-          sudo apt update
-          sudo pipx install clang-format
-          which clang-format
-          clang-format --version
-
-      - name: Run linters
-        uses: wearerequired/lint-action@v2
-        with:
-          auto_fix: ${{(github.event.pull_request.head.repo.full_name != 'CommitteeOfZero/impacto') && 'false' || 'true'}}
-          clang_format: true
-          clang_format_auto_fix: ${{(github.event.pull_request.head.repo.full_name != 'CommitteeOfZero/impacto') && 'false' || 'true'}}
-          continue_on_error: false
-      - name: Get latest commit
-        id: commit
-        run: |
-          SHA=$(git rev-parse HEAD)
-          echo "commitid=$SHA" >> $GITHUB_OUTPUT
-  job-matrix:
-    name: ${{ matrix.os_name }}
-    runs-on: ${{ matrix.os }}
     timeout-minutes: 120
-    needs: 
-      - lint
-      - get-version
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-2025
-            os_name: windows
-            triplet: x64-windows-release
-            host_triplet: x64-windows-release
-          - os: ubuntu-24.04
-            os_name: linux
-            triplet: x64-linux-ci
-            host_triplet: x64-linux-ci
-          - os: macos-15
-            os_name: macos_arm64
-            triplet: arm64-osx-ci
-            host_triplet: arm64-osx-ci
-          - os: macos-15-intel
-            os_name: macos_x64
-            triplet: x64-osx-ci
-            host_triplet: x64-osx-ci
-          - os: ubuntu-24.04
-            os_name: android
-            triplet: arm64-android-ci
-            host_triplet: x64-linux-ci
     env:
-      VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
-      VCPKG_BINARY_SOURCES: >-
-        ${{ github.event_name == 'pull_request_target' &&
-            (github.event.pull_request.head.repo.full_name != github.repository)
-            && 'clear;nuget,https://nuget.pkg.github.com/committeeofzero/index.json,read'
-            || 'clear;nuget,https://nuget.pkg.github.com/committeeofzero/index.json,readwrite' }}
-      vcpkgCommitId: '62159a45e18f3a9ac0548628dcaf74fcb60c6ff9'
-      PresetName: ${{ (matrix.os_name == 'android') && 'ci-release-android' || 'ci-release' }}
-      VERSION: ${{ needs.get-version.outputs.VERSION }}
+      ABI: arm64-v8a
+      MINSDKVERSION: 28
+      VCPKG_DEFAULT_TRIPLET: arm64-android-ci
+      VCPKG_BINARY_SOURCES: clear;nuget,https://nuget.pkg.github.com/committeeofzero/index.json,readwrite
+      vcpkgCommitId: 62159a45e18f3a9ac0548628dcaf74fcb60c6ff9
       VCPKG_FORCE_DOWNLOADED_BINARIES: 1
-
-    steps:
-    - uses: actions/checkout@v6
-      with:
-        ref: ${{ needs.lint.outputs.commitid }}
-
-    - name: Setup Android Environment
-      if: matrix.os_name == 'android'
-      run: |
-        export ABI=arm64-v8a
-        export MINSDKVERSION=28
-        echo "MINSDKVERSION=$MINSDKVERSION" >> $GITHUB_ENV
-        echo "ABI=$ABI" >> $GITHUB_ENV
-        echo "CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-linux-android$MINSDKVERSION -fPIC" >> $GITHUB_ENV
-        echo "VULKAN_SDK=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr" >> $GITHUB_ENV
-      shell: bash
-
-    - name: Set up Java
-      uses: actions/setup-java@v4
-      if: matrix.os_name == 'android'
-      with:
-        java-version: 17
-        distribution: "temurin"
-        cache: 'gradle'
-
-    - uses: lukka/get-cmake@latest
-
-    - name: Setup vcpkg
-      uses: lukka/run-vcpkg@v11
-      id: runvcpkg
-      with:
-        vcpkgDirectory: '${{ runner.workspace }}/build/vcpkg'
-        vcpkgGitCommitId: '${{ env.vcpkgCommitId }}'
-        vcpkgJsonGlob: '**/vcpkg.json'
-
-    - name: Install Dependencies Linux
-      run: |
-        sudo apt-get update
-        sudo apt-get install nasm libx11-dev libxft-dev libxext-dev libwayland-dev libxkbcommon-dev libegl1-mesa-dev libibus-1.0-dev libxrandr-dev libltdl-dev mono-complete autoconf autoconf-archive automake libtool libdrm-dev libasound2-dev libpulse-dev libaudio-dev libfribidi-dev libjack-dev libsndio-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev libxkbcommon-dev libdrm-dev libgbm-dev libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdbus-1-dev libibus-1.0-dev libudev-dev libthai-dev libusb-1.0-0-dev libpipewire-0.3-dev libdecor-0-dev liburing-dev
-      if: matrix.os_name == 'linux' || matrix.os_name == 'android'
-    - name: Install Dependencies Mac
-      run: brew install nasm mono
-      if: contains(matrix.os_name, 'macos')
-
-    - name: Configure NuGet feed via vcpkg
-      shell: bash
-      env:
-        FEED_URL: 'https://nuget.pkg.github.com/committeeofzero/index.json'
-      run: |
-        NUGET_PATH=$(vcpkg fetch nuget | tail -n 1)
-
-        if [[ "$NUGET_PATH" == *.exe && "$RUNNER_OS" != "Windows" ]]; then
-          EXEC=(mono "$NUGET_PATH")
-        else
-          EXEC=("$NUGET_PATH")
-        fi
-
-        "${EXEC[@]}" sources add \
-          -Source "${{ env.FEED_URL }}" \
-          -StorePasswordInClearText \
-          -Name GitHubPackages \
-          -UserName "GithubCI" \
-          -Password "${{ github.token }}"
-
-        "${EXEC[@]}" setapikey "${{ github.token }}" \
-          -Source "${{ env.FEED_URL }}"
-
-    - name: Run CMake with vcpkg.json manifest
-      uses: lukka/run-cmake@v10
-      with:
-        cmakeListsTxtPath: '${{ github.workspace }}/CMakeLists.txt'
-        configurePreset: ${{ env.PresetName }}
-        configurePresetAdditionalArgs: >-
-          [
-            '-DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}',
-            '-DVCPKG_HOST_TRIPLET=${{ matrix.host_triplet }}',
-          ]
-        buildPreset: ${{ env.PresetName }}
-    - name: Copy docs
-      run: |
-        mkdir -p "${{ github.workspace }}/release/${{ env.PresetName }}"
-        cp THIRDPARTY.md README.md LICENSE "${{ github.workspace }}/release/${{ env.PresetName }}"
-      shell: bash
-    - name: Decode signing/prod.properties file
-      if: matrix.os_name == 'android' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-      env:
-        PROD_PROPERTIES: ${{ secrets.ANDROID_PROD_PROPERTIES }}
-        PROD_JKS: ${{ secrets.ANDROID_PROD_JKS }}
-      run: |
-        echo "$PROD_PROPERTIES" > ${{ github.workspace }}/android/app/signing/prod.properties
-        echo "$PROD_JKS" | base64 -d > ${{ github.workspace }}/android/app/signing/prod.jks
-    - name: Build Android
-      if: matrix.os_name == 'android'
-      run: |
-        pushd "${{ github.workspace }}/android/"
-        ./gradlew assemble
-        cp "${{ github.workspace }}/android/distribution/android/app/outputs/apk/release/app-release.apk" "${{ github.workspace }}/release/${{ env.PresetName }}/impacto-release.apk"
-      shell: bash
-    - name: Archive Artifacts
-      run: |
-        mv ./release/${{ env.PresetName }} ./release/impacto
-        7z a -tzip -mm=Deflate -mx=9 impacto-${{ matrix.os_name }}-${{ env.VERSION }}${{ github.run_number }}-${{ github.sha }}.zip ./release/impacto
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v7
-      with:
-        path: impacto-${{ matrix.os_name }}-${{ env.VERSION }}${{ github.run_number }}-${{ github.sha }}.zip
-        archive: false
-
-  switch:
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    needs:
-      - lint
-      - get-version
-    permissions:
-      contents: read
-      packages: write
-    container:
-      image: ghcr.io/committeeofzero/impacto-switch:latest
-    env:
-      VERSION: ${{ needs.get-version.outputs.VERSION }}
-      PresetName: ci-release-switch
-      vcpkgCommitId: '62159a45e18f3a9ac0548628dcaf74fcb60c6ff9'
-      VCPKG_FORCE_DOWNLOADED_BINARIES: 1
-      VCPKG_BINARY_SOURCES: >-
-        ${{ github.event_name == 'pull_request_target' &&
-            (github.event.pull_request.head.repo.full_name != github.repository)
-            && 'clear;nuget,https://nuget.pkg.github.com/committeeofzero/index.json,read'
-            || 'clear;nuget,https://nuget.pkg.github.com/committeeofzero/index.json,readwrite' }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Set up Android environment
+        shell: bash
+        run: |
+          echo "MINSDKVERSION=28" >> "$GITHUB_ENV"
+          echo "ABI=arm64-v8a" >> "$GITHUB_ENV"
+          echo "CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-linux-android28 -fPIC" >> "$GITHUB_ENV"
+          echo "VULKAN_SDK=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
         with:
-          ref: ${{ needs.lint.outputs.commitid }}
+          java-version: "17"
+          distribution: temurin
+          cache: gradle
 
       - uses: lukka/get-cmake@latest
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
-        id: runvcpkg
         with:
-          vcpkgDirectory: '${{ runner.workspace }}/build/vcpkg'
-          vcpkgGitCommitId: '${{ env.vcpkgCommitId }}'
-          vcpkgJsonGlob: '**/vcpkg.json'
+          vcpkgDirectory: ${{ runner.workspace }}/build/vcpkg
+          vcpkgGitCommitId: ${{ env.vcpkgCommitId }}
+          vcpkgJsonGlob: "**/vcpkg.json"
 
-      - name: Configure NuGet feed via vcpkg
+      - name: Configure NuGet feed
         shell: bash
         env:
-          FEED_URL: 'https://nuget.pkg.github.com/committeeofzero/index.json'
+          FEED_URL: https://nuget.pkg.github.com/committeeofzero/index.json
+          GH_TOKEN: ${{ github.token }}
         run: |
           NUGET_PATH=$(vcpkg fetch nuget | tail -n 1)
-
           if [[ "$NUGET_PATH" == *.exe && "$RUNNER_OS" != "Windows" ]]; then
             EXEC=(mono "$NUGET_PATH")
           else
             EXEC=("$NUGET_PATH")
           fi
+          "${EXEC[@]}" sources add -Source "$FEED_URL" -StorePasswordInClearText -Name GitHubPackages -UserName GithubCI -Password "$GH_TOKEN" || true
+          "${EXEC[@]}" setapikey "$GH_TOKEN" -Source "$FEED_URL" || true
 
-          "${EXEC[@]}" sources add \
-            -Source "${{ env.FEED_URL }}" \
-            -StorePasswordInClearText \
-            -Name GitHubPackages \
-            -UserName "GithubCI" \
-            -Password "${{ github.token }}"
-
-          "${EXEC[@]}" setapikey "${{ github.token }}" \
-            -Source "${{ env.FEED_URL }}"
-
-      - name: Run CMake with vcpkg.json manifest
+      - name: Configure and build native Android runtime
         uses: lukka/run-cmake@v10
         with:
-          cmakeListsTxtPath: '${{ github.workspace }}/CMakeLists.txt'
-          configurePreset: ${{ env.PresetName }}
-          buildPreset: ${{ env.PresetName }}
+          cmakeListsTxtPath: ${{ github.workspace }}/CMakeLists.txt
+          configurePreset: ci-release-android
+          configurePresetAdditionalArgs: >-
+            [
+              '-DVCPKG_TARGET_TRIPLET=arm64-android-ci',
+              '-DVCPKG_HOST_TRIPLET=x64-linux-ci'
+            ]
+          buildPreset: ci-release-android
 
-      - name: Copy docs
-        run: |
-          cp THIRDPARTY.md README.md LICENSE "release/${{ env.PresetName }}"
+      - name: Build debug APK
         shell: bash
-
-      - name: Archive Artifacts
         run: |
-          mv ./release/${{ env.PresetName }} ./release/impacto
-          7z a -tzip -mm=Deflate -mx=9 impacto-switch-${{ env.VERSION }}${{ github.run_number }}-${{ github.sha }}.zip ./release/impacto
-      - name: Upload Artifact
+          cd android
+          ./gradlew --no-daemon assembleDebug
+          mkdir -p ../release
+          cp distribution/android/app/outputs/apk/debug/app-debug.apk ../release/impacto-android-arm64-debug.apk
+
+      - name: Upload Android APK
         uses: actions/upload-artifact@v7
         with:
-          path: impacto-switch-${{ env.VERSION }}${{ github.run_number }}-${{ github.sha }}.zip
-          archive: false
+          name: impacto-android-arm64-debug
+          path: release/impacto-android-arm64-debug.apk
+          if-no-files-found: error
