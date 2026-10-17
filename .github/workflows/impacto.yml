@@ -19,7 +19,8 @@ jobs:
       ABI: arm64-v8a
       MINSDKVERSION: 28
       VCPKG_DEFAULT_TRIPLET: arm64-android-ci
-      VCPKG_BINARY_SOURCES: clear;nuget,https://nuget.pkg.github.com/committeeofzero/index.json,readwrite
+      # Disable the upstream NuGet binary cache in this fork; build dependencies from source.
+      VCPKG_BINARY_SOURCES: clear
       vcpkgCommitId: 62159a45e18f3a9ac0548628dcaf74fcb60c6ff9
       VCPKG_FORCE_DOWNLOADED_BINARIES: 1
     steps:
@@ -47,30 +48,6 @@ jobs:
           vcpkgDirectory: ${{ runner.workspace }}/build/vcpkg
           vcpkgGitCommitId: ${{ env.vcpkgCommitId }}
           vcpkgJsonGlob: "**/vcpkg.json"
-
-      - name: Configure NuGet feed
-        shell: bash
-        env:
-          FEED_URL: https://nuget.pkg.github.com/committeeofzero/index.json
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          echo "VCPKG_ROOT=$VCPKG_ROOT"
-          VCPKG_EXE="$VCPKG_ROOT/vcpkg"
-          test -x "$VCPKG_EXE"
-          NUGET_OUTPUT=$("$VCPKG_EXE" fetch nuget)
-          echo "$NUGET_OUTPUT"
-          NUGET_PATH=$(printf '%s\n' "$NUGET_OUTPUT" | tail -n 1)
-          test -n "$NUGET_PATH"
-          if [[ "$NUGET_PATH" == *.exe ]]; then
-            sudo apt-get update
-            sudo apt-get install -y mono-runtime
-            EXEC=(mono "$NUGET_PATH")
-          else
-            EXEC=("$NUGET_PATH")
-          fi
-          "${EXEC[@]}" sources add -Source "$FEED_URL" -StorePasswordInClearText -Name GitHubPackages -UserName GithubCI -Password "$GH_TOKEN" || true
-          "${EXEC[@]}" setapikey "$GH_TOKEN" -Source "$FEED_URL" || true
 
       - name: Configure and build native Android runtime
         uses: lukka/run-cmake@v10
