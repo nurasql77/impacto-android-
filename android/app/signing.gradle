@@ -1,19 +1,30 @@
-// https://dev.to/ivanshafran/android-open-source-app-secure-build-config-38gi
+// Use the repository's production signing properties when they are available.
+// For CI builds without private signing secrets, inherit the standard debug key.
 def propertiesFilename = "signing/prod.properties"
-if (!project.file(propertiesFilename).exists()) {
+if (!project.file(propertiesFilename).exists() || project.file(propertiesFilename).length() == 0) {
     propertiesFilename = "signing/external.properties"
 }
 
-def signingProperties = new Properties()
-signingProperties.load(new FileInputStream(file(propertiesFilename)))
+if (!project.file(propertiesFilename).exists() || project.file(propertiesFilename).length() == 0) {
+    android {
+        signingConfigs {
+            release {
+                initWith debug
+            }
+        }
+    }
+} else {
+    def signingProperties = new Properties()
+    signingProperties.load(new FileInputStream(file(propertiesFilename)))
 
-android {
-    signingConfigs {
-        release {
-            keyAlias signingProperties.releaseSignKeyAlias
-            keyPassword signingProperties.releaseSignKeyPassword
-            storeFile file(signingProperties.releaseStoreFilePath)
-            storePassword signingProperties.releaseStorePassword
+    android {
+        signingConfigs {
+            release {
+                keyAlias signingProperties.releaseSignKeyAlias
+                keyPassword signingProperties.releaseSignKeyPassword
+                storeFile file(signingProperties.releaseStoreFilePath)
+                storePassword signingProperties.releaseStorePassword
+            }
         }
     }
 }
