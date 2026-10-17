@@ -54,8 +54,17 @@ jobs:
           FEED_URL: https://nuget.pkg.github.com/committeeofzero/index.json
           GH_TOKEN: ${{ github.token }}
         run: |
-          NUGET_PATH=$(vcpkg fetch nuget | tail -n 1)
-          if [[ "$NUGET_PATH" == *.exe && "$RUNNER_OS" != "Windows" ]]; then
+          set -euo pipefail
+          echo "VCPKG_ROOT=$VCPKG_ROOT"
+          VCPKG_EXE="$VCPKG_ROOT/vcpkg"
+          test -x "$VCPKG_EXE"
+          NUGET_OUTPUT=$("$VCPKG_EXE" fetch nuget)
+          echo "$NUGET_OUTPUT"
+          NUGET_PATH=$(printf '%s\n' "$NUGET_OUTPUT" | tail -n 1)
+          test -n "$NUGET_PATH"
+          if [[ "$NUGET_PATH" == *.exe ]]; then
+            sudo apt-get update
+            sudo apt-get install -y mono-runtime
             EXEC=(mono "$NUGET_PATH")
           else
             EXEC=("$NUGET_PATH")
